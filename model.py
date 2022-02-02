@@ -1,8 +1,10 @@
+from turtle import forward
 from typing import List, Tuple
 from unittest import result
 import torch
 import torch.nn as nn
 from torch import Tensor
+
 
 class Encoder(nn.Module):
     """Implements the listen part of the LAS model, where the input is 
@@ -78,10 +80,12 @@ class Encoder(nn.Module):
             h * self.reduction_factor
             )
 
+class Attention(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-if __name__ == '__main__':
-    e = Encoder(40, 3, 128, False, reduction_factor=2)
-    result = torch.randn(5, 100, 40)
-    r, h = e(result)
-    print(r.shape)
-    print(h.shape)
+    def forward(self, h_enc: Tensor, h_dec: Tensor) -> Tensor:
+        e = torch.matmul(h_enc, torch.swapaxes(h_dec, 1, -1))
+        a = torch.softmax(e, dim=1)
+        c = torch.matmul(torch.swapaxes(a, 1, -1), h_enc)
+        return c
