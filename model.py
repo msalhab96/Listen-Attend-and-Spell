@@ -1,10 +1,10 @@
-from turtle import forward
-from typing import List, Tuple
-from unittest import result
+from typing import List, Tuple, Union
+from numpy import size
 import torch
 import torch.nn as nn
 from torch import Tensor
-
+from dataclasses import dataclass
+import random
 
 class Encoder(nn.Module):
     """Implements the listen part of the LAS model, where the input is 
@@ -46,7 +46,7 @@ class Encoder(nn.Module):
             out, (hn, cn) = layer(out)
             if i != len(self.layers):
                 out = self.change_dim(out)
-        return out, hn
+        return out, hn, cn
 
     def is_valid_length(self, x: Tensor) -> Tuple[bool, int]:
         """Check if the given tensor is valid to be passed 
@@ -85,7 +85,95 @@ class Attention(nn.Module):
         super().__init__()
 
     def forward(self, h_enc: Tensor, h_dec: Tensor) -> Tensor:
-        e = torch.matmul(h_enc, torch.swapaxes(h_dec, 1, -1))
+        e = torch.matmul(h_enc, h_dec.permute(1, 2, 0))
         a = torch.softmax(e, dim=1)
-        c = torch.matmul(torch.swapaxes(a, 1, -1), h_enc)
-        return c
+        c = torch.matmul(h_enc.permute(0, 2, 1), a)
+        return c.permute(2, 0, 1)
+
+class Decoder(nn.Module):
+    def __init__(
+            self, 
+            vocab_size: int,
+            embedding_dim: int, 
+            hidden_size: int,
+            ):
+        super().__init__()
+        self.embedding = nn.Embedding(
+            num_embeddings=vocab_size,
+            embedding_dim=embedding_dim
+        )
+        self.lstm = nn.LSTM(
+                input_size=embedding_dim,
+                hidden_size=hidden_size,
+                batch_first=True
+            )
+        self.fc = nn.Linear(
+            in_features=hidden_size,
+            out_features=vocab_size
+            )
+    def forward(
+            self, 
+            x: Tensor,
+            last_h: Tensor,
+            last_c: Tensor
+            ):
+        out = self.embedding(x)
+        out, (h, c) = self.lstm(out, (last_h, last_c))
+        out = self.fc(out)
+        return out, h, c
+
+class Model(nn.Module):
+    def __init__(
+            self, 
+            enc_params: dict, 
+            dec_params: dict
+            ):
+        super().__init__()
+        self.encoder = Encoder(**enc_params)
+        self.attention = Attention()
+        self.decoder = Decoder(**dec_params)
+
+    def forward(
+            self, 
+            x: Tensor, 
+            sos_token_id: int,
+            max_len: int,
+            target: Tensor,
+            teacher_forcing_prob: float
+            ):
+        h_enc, hn, cn = self.encoder(x)
+        (n, b, h) = hn.shape 
+        hn = hn.permute(1, 0, -1).reshape(1, -1, n * h)
+        cn = cn.permute(1, 0, -1).reshape(1, -1, n * h)
+        result = (torch.ones(size=(b, 1)) * sos_token_id).long()
+        (out, h, c) = self.decoder(result, hn, cn)
+        predictions = out
+        result = torch.argmax(out, dim=-1)
+        for t in range(max_len - 1):
+            context = self.attention(h_enc, h)
+            (out, h, cn) = self.decoder(result, context, cn)
+            predictions = torch.cat((predictions, out), dim=1)
+            if random.random() > teacher_forcing_prob:
+                result = target[:, t:t+1] 
+            else:
+                result = torch.argmax(out, dim=-1)
+        return predictions
+
+if __name__ == '__main__':
+    enc_params = {
+            "input_size" : 40, 
+            "num_layers" : 3, 
+            "hidden_size" : 128,
+            "truncate" : False,
+            "reduction_factor" : 1
+    }
+    dec_params = {
+            "vocab_size" : 100,
+            "embedding_dim" : 512, 
+            "hidden_size" : 256
+    }
+    model = Model(enc_params, dec_params)
+    x = torch.randn(size=(3, 24, 40))
+    y = torch.randint(0, 55, size=(3, 10))
+    out = model(x, 5, 10, y, 0.5)
+    print(out.shape)
