@@ -1,9 +1,14 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod, abstractproperty
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Union
+from typing import (
+    Callable,
+    List,
+    Tuple,
+    Union
+    )
 from os import PathLike
-from data_loaders import  JSONLoader
+from data_loaders import JSONLoader
 from utils import save_json
 from functools import wraps
 
@@ -27,6 +32,7 @@ def check_token(token: str) -> Callable:
             return func(obj, token)
         return wrapper
     return decorator
+
 
 @dataclass
 class SpecialTokens:
@@ -75,6 +81,7 @@ class SpecialTokens:
     def mask_token(self):
         return self._mask[0]
 
+
 class ITokenizer(ABC):
 
     @abstractmethod
@@ -116,9 +123,16 @@ class ITokenizer(ABC):
     @abstractmethod
     def get_tokens(self):
         pass
-    
+
 
 class BaseTokenizer(ITokenizer):
+    _oov_key = 'oov'
+    _sos_key = 'sos'
+    _eos_key = 'eos'
+    _pad_key = 'pad'
+    _token_to_id_key = 'token_to_id'
+    _special_tokens_key = 'special_tokens'
+
     def __init__(self) -> None:
         super().__init__()
         self._token_to_id = dict()
@@ -161,36 +175,41 @@ class BaseTokenizer(ITokenizer):
 
     def _reset_id_to_token(self) -> None:
         self._id_to_token = dict(zip(
-            self._token_to_id.values(), 
+            self._token_to_id.values(),
             self._token_to_id.keys()
             ))
 
     def __set_special_tokens_dict(self, data: dict) -> None:
-        if 'oov' in data:
-            self.special_tokens._oov = tuple(data['oov'])
-        if 'pad' in data:
-            self.special_tokens._pad = tuple(data['pad'])
-        if 'sos' in data:
-            self.special_tokens._sos = tuple(data['sos'])
-        if 'eos' in data:
-            self.special_tokens._eos = tuple(data['eos'])
+        if self._oov_key in data:
+            self.special_tokens._oov = tuple(data[self._oov_key])
+        if self._pad_key in data:
+            self.special_tokens._pad = tuple(data[self._pad_key])
+        if self._sos_key in data:
+            self.special_tokens._sos = tuple(data[self._sos_key])
+        if self._eos_key in data:
+            self.special_tokens._eos = tuple(data[self._eos_key])
 
     def __get_special_tokens_dict(self) -> dict:
         data = {}
         if self.special_tokens.oov_id is not None:
-            data['oov'] = list(self.special_tokens._oov)
+            data[self._oov_key] = list(self.special_tokens._oov)
         if self.special_tokens.pad_id is not None:
-            data['pad'] = list(self.special_tokens._pad)
+            data[self._pad_key] = list(self.special_tokens._pad)
         if self.special_tokens.sos_id is not None:
-            data['sos'] = list(self.special_tokens._sos)
+            data[self._sos_key] = list(self.special_tokens._sos)
         if self.special_tokens.eos_id is not None:
-            data['eos'] = list(self.special_tokens._eos)
+            data[self._eos_key] = list(self.special_tokens._eos)
         return data
 
-    def load_tokenizer(self, tokenizer_path: Union[str, PathLike], *args, **kwargs) -> ITokenizer:
+    def load_tokenizer(
+            self,
+            tokenizer_path: Union[str, PathLike],
+            *args,
+            **kwargs
+            ) -> ITokenizer:
         data = JSONLoader(tokenizer_path).load()
-        self._token_to_id = data['token_to_id']
-        self.__set_special_tokens_dict(data['special_tokens'])
+        self._token_to_id = data[self._token_to_id_key]
+        self.__set_special_tokens_dict(data[self._special_tokens_key])
         self._reset_id_to_token()
         return self
 
@@ -200,10 +219,15 @@ class BaseTokenizer(ITokenizer):
         self._reset_id_to_token()
         return self
 
-    def save_tokenizer(self, save_path: Union[str, PathLike], *args, **kwargs) -> None:
+    def save_tokenizer(
+            self,
+            save_path: Union[str, PathLike],
+            *args,
+            **kwargs
+            ) -> None:
         data = {
-            'token_to_id': self._token_to_id,
-            'special_tokens': self.__get_special_tokens_dict()
+            self._token_to_id_key: self._token_to_id,
+            self._special_tokens_key: self.__get_special_tokens_dict()
         }
         save_json(save_path, data)
 
@@ -212,7 +236,10 @@ class BaseTokenizer(ITokenizer):
 
     def tokens2ids(self, sentence: str) -> List[int]:
         sentence = self.preprocess_tokens(sentence)
-        return list(map(lambda x: self._token_to_id.get(x, self.special_tokens.oov_id), sentence))
+        return list(map(
+            lambda x: self._token_to_id.get(x, self.special_tokens.oov_id),
+            sentence)
+            )
 
     def batch_tokenizer(self, data: List[str]) -> list:
         return list(map(self.tokens2ids, data))
@@ -230,4 +257,3 @@ class CharTokenizer(BaseTokenizer):
 
     def preprocess_tokens(self, sentence: str) -> List[str]:
         return list(sentence)
-
