@@ -1,27 +1,26 @@
-from typing import List, Tuple, Union
-from numpy import size
+from typing import Tuple
 import torch
 import torch.nn as nn
 from torch import Tensor
-from dataclasses import dataclass
 import random
 
+
 class Encoder(nn.Module):
-    """Implements the listen part of the LAS model, where the input is 
+    """Implements the listen part of the LAS model, where the input is
     mel spectrogram and the output is the last hidden states
 
     Args:
         input_size (int): Number of mel filterbanks
         num_layers (int): Number of stacked BiLSTM layers
         hidden_size (int): The hidden state Dimension of each BiLSTM layer
-        truncate (bool): whether to truncate the outputs or to pad by zeros 
+        truncate (bool): whether to truncate the outputs or to pad by zeros
         reduction_factor (int, optional) the Time space reduction factor.
         Defaults to 2.
     """
     def __init__(
-            self, 
-            input_size: int, 
-            num_layers: int, 
+            self,
+            input_size: int,
+            num_layers: int,
             hidden_size: int,
             truncate: bool,
             reduction_factor=2
@@ -39,7 +38,7 @@ class Encoder(nn.Module):
             )
             for i in range(num_layers)
         ])
-    
+
     def forward(self, x: Tensor):
         out = x
         for i, layer in enumerate(self.layers, start=1):
@@ -49,8 +48,8 @@ class Encoder(nn.Module):
         return out, hn, cn
 
     def is_valid_length(self, x: Tensor) -> Tuple[bool, int]:
-        """Check if the given tensor is valid to be passed 
-        to dimensionality reduction phase or not 
+        """Check if the given tensor is valid to be passed
+        to dimensionality reduction phase or not
 
         Args:
             x (Tensor): The tensor to be validated of shape (B, T, H)
@@ -75,10 +74,11 @@ class Encoder(nn.Module):
                 x = torch.cat((x, zeros), dim=1)
                 t += self.reduction_factor - mod
         return x.reshape(
-            b, 
-            t // self.reduction_factor, 
+            b,
+            t // self.reduction_factor,
             h * self.reduction_factor
             )
+
 
 class Attention(nn.Module):
     def __init__(self):
@@ -90,11 +90,12 @@ class Attention(nn.Module):
         c = torch.matmul(h_enc.permute(0, 2, 1), a)
         return c.permute(2, 0, 1)
 
+
 class Decoder(nn.Module):
     def __init__(
-            self, 
+            self,
             vocab_size: int,
-            embedding_dim: int, 
+            embedding_dim: int,
             hidden_size: int,
             ):
         super().__init__()
@@ -111,8 +112,9 @@ class Decoder(nn.Module):
             in_features=hidden_size,
             out_features=vocab_size
             )
+
     def forward(
-            self, 
+            self,
             x: Tensor,
             last_h: Tensor,
             last_c: Tensor
@@ -122,10 +124,11 @@ class Decoder(nn.Module):
         out = self.fc(out)
         return out, h, c
 
+
 class Model(nn.Module):
     def __init__(
-            self, 
-            enc_params: dict, 
+            self,
+            enc_params: dict,
             dec_params: dict
             ):
         super().__init__()
@@ -134,15 +137,15 @@ class Model(nn.Module):
         self.decoder = Decoder(**dec_params)
 
     def forward(
-            self, 
-            x: Tensor, 
+            self,
+            x: Tensor,
             sos_token_id: int,
             max_len: int,
             target: Tensor,
             teacher_forcing_prob: float
             ):
         h_enc, hn, cn = self.encoder(x)
-        (n, b, h) = hn.shape 
+        (n, b, h) = hn.shape
         hn = hn.permute(1, 0, -1).reshape(1, -1, n * h)
         cn = cn.permute(1, 0, -1).reshape(1, -1, n * h)
         result = (torch.ones(size=(b, 1)) * sos_token_id).long()
@@ -154,26 +157,7 @@ class Model(nn.Module):
             (out, h, cn) = self.decoder(result, context, cn)
             predictions = torch.cat((predictions, out), dim=1)
             if random.random() > teacher_forcing_prob:
-                result = target[:, t:t+1] 
+                result = target[:, t:t+1]
             else:
                 result = torch.argmax(out, dim=-1)
-        return predictions
-
-if __name__ == '__main__':
-    enc_params = {
-            "input_size" : 40, 
-            "num_layers" : 3, 
-            "hidden_size" : 128,
-            "truncate" : False,
-            "reduction_factor" : 1
-    }
-    dec_params = {
-            "vocab_size" : 100,
-            "embedding_dim" : 512, 
-            "hidden_size" : 256
-    }
-    model = Model(enc_params, dec_params)
-    x = torch.randn(size=(3, 24, 40))
-    y = torch.randint(0, 55, size=(3, 10))
-    out = model(x, 5, 10, y, 0.5)
-    print(out.shape)
+        return torch.softmax(predictions, dim=2)
