@@ -1,0 +1,32 @@
+checkpoint: null
+device: 'cuda'
+max_len: 200
+
+data:
+  sampling_rate: 16000
+  n_mel_channels: 40
+  training_file: 'files/train.txt'
+  testing_file: 'files/test.txt'
+  tokenizer_file: null
+  descending_order: False
+  sep: '|'
+
+training:
+  batch_size: 16
+  optimizer: 'adam' # adam, sgd
+  learning_rate: 1e-3
+  epochs: 100
+  checkpoints_dir: 'checkpoints'
+  p_teacher_forcing: 0.1
+
+model:
+  encoder:
+    input_size: ${data.n_mel_channels} 
+    num_layers: 3
+    hidden_size: 128
+    truncate: false
+    reduction_factor: 2
+
+  decoder:
+    embedding_dim: 512
+    hidden_size: 256
