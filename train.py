@@ -149,8 +149,7 @@ def get_model_args(vocab_size: int) -> dict:
     enc_params = dict(**hprams.model.encoder, device=device)
     dec_params = dict(
         **hprams.model.decoder,
-        vocab_size=vocab_size,
-        device=device
+        vocab_size=vocab_size
         )
     return {
         'enc_params': enc_params,
@@ -164,3 +163,7 @@ def load_model(vocab_size: int) -> Module:
     if hprams.checkpoint is not None:
         load_stat_dict(model, hprams.checkpoint)
     return model
+
+
+if __name__ == '__main__':
+    model = load_model(200)
