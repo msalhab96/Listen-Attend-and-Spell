@@ -1,4 +1,5 @@
-from utils import get_formated_date
+from model import Model
+from utils import get_formated_date, load_stat_dict
 from torch.optim import Optimizer
 from data import DataLoader
 from typing import Callable
@@ -141,3 +142,25 @@ class Trainer:
             self.history[self.__train_loss_key].append(total_loss)
         else:
             self.history[self.__train_loss_key] = [total_loss]
+
+
+def get_model_args(vocab_size: int) -> dict:
+    device = hprams.device
+    enc_params = dict(**hprams.model.encoder, device=device)
+    dec_params = dict(
+        **hprams.model.decoder,
+        vocab_size=vocab_size,
+        device=device
+        )
+    return {
+        'enc_params': enc_params,
+        'dec_params': dec_params,
+        'device': device
+    }
+
+
+def load_model(vocab_size: int) -> Module:
+    model = Model(**get_model_args(vocab_size))
+    if hprams.checkpoint is not None:
+        load_stat_dict(model, hprams.checkpoint)
+    return model
