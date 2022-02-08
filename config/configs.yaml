@@ -5,11 +5,17 @@ max_len: 200
 data:
   sampling_rate: 16000
   n_mel_channels: 40
+  hop_length: 200
+  n_ftt: 400
   training_file: 'files/train.txt'
   testing_file: 'files/test.txt'
   tokenizer_file: null
   descending_order: False
   sep: '|'
+  csv_file_keys:
+    duration: 'duration'
+    path: 'path'
+    text: 'text'
 
 training:
   batch_size: 16
