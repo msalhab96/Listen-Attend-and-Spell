@@ -1,14 +1,21 @@
+from pathlib import Path
 from model import Model
+from tokenizer import CharTokenizer, ITokenizer
 from utils import get_formated_date, load_stat_dict
 from torch.optim import Optimizer
-from data import DataLoader
-from typing import Callable
+from data import AudioPipeline, DataLoader, TextPipeline
+from typing import Callable, Union
 from torch.nn import Module
 from functools import wraps
 from hprams import hprams
 from tqdm import tqdm
 import torch
 import os
+
+OPT = {
+    'adam': torch.optim.Adam,
+    'sgd': torch.optim.Adam
+}
 
 
 def save_checkpoint(func) -> Callable:
@@ -164,6 +171,64 @@ def load_model(vocab_size: int) -> Module:
         load_stat_dict(model, hprams.checkpoint)
     return model
 
+def get_tokenizer():
+    tokenizer = CharTokenizer()
+    if hprams.tokenizer.tokenizer_file is not None:
+        tokenizer = tokenizer.load_tokenizer(
+            hprams.tokenizer.tokenizer_file
+            )
+    tokenizer = tokenizer.add_pad_token().add_sos_token().add_eos_token()
+    with open(hprams.tokenizer.vocab_path, 'r') as f:
+        vocab = f.read().split('\n')
+    tokenizer.set_tokenizer(vocab)
+    tokenizer.save_tokenizer('tokenizer.json')
+    return tokenizer
+    
+def get_data_loader(
+        file_path: Union[str, Path],
+        tokenizer: ITokenizer
+        ):
+    audio_pipeline = AudioPipeline()
+    text_pipeline = TextPipeline()
+    return DataLoader(
+        file_path,
+        text_pipeline,
+        audio_pipeline,
+        tokenizer,
+        hprams.training.batch_size,
+        hprams.data.max_str_len
+    )
+    
+def get_trainer():
+    tokenizer = get_tokenizer()
+    vocab_size = tokenizer.vocab_size
+    train_loader = get_data_loader(
+        hprams.data.training_file,
+        tokenizer
+    )
+    test_loader = get_data_loader(
+        hprams.data.testing_file,
+        tokenizer
+    )
+    criterion = torch.nn.CrossEntropyLoss(
+        ignore_index=tokenizer.special_tokens.pad_id
+        )
+    model = load_model(vocab_size)
+    optimizer = OPT[hprams.training.optimizer](
+        model.parameters(),
+        lr=hprams.training.learning_rate
+        )
+    return Trainer(
+        criterion=criterion,
+        optimizer=optimizer,
+        model=model,
+        device=hprams.device,
+        train_loader=train_loader,
+        test_loader=test_loader,
+        sos_token_id=tokenizer.special_tokens.sos_id,
+        epochs=hprams.training.epochs
+    )
 
 if __name__ == '__main__':
-    model = load_model(200)
+    trainer = get_trainer()
+    trainer.fit()
