@@ -23,11 +23,13 @@ class Encoder(nn.Module):
             num_layers: int,
             hidden_size: int,
             truncate: bool,
-            reduction_factor=2
+            reduction_factor=2,
+            device='cuda'
             ) -> None:
         super().__init__()
         assert reduction_factor > 0, 'reduction_factor should be > 0'
         self.truncate = truncate
+        self.device = device
         self.reduction_factor = reduction_factor
         self.layers = nn.ModuleList([
             nn.LSTM(
@@ -71,6 +73,7 @@ class Encoder(nn.Module):
                 x = x[..., :-1 * n_truncates, :]
             else:
                 zeros = torch.zeros(size=(b, self.reduction_factor - mod, h))
+                zeros = zeros.to(self.device)
                 x = torch.cat((x, zeros), dim=1)
                 t += self.reduction_factor - mod
         return x.reshape(
@@ -129,12 +132,14 @@ class Model(nn.Module):
     def __init__(
             self,
             enc_params: dict,
-            dec_params: dict
+            dec_params: dict,
+            device='cuda'
             ):
         super().__init__()
-        self.encoder = Encoder(**enc_params)
+        self.device = device
+        self.encoder = Encoder(**enc_params).to(device)
         self.attention = Attention()
-        self.decoder = Decoder(**dec_params)
+        self.decoder = Decoder(**dec_params).to(device)
 
     def forward(
             self,
@@ -149,6 +154,7 @@ class Model(nn.Module):
         hn = hn.permute(1, 0, -1).reshape(1, -1, n * h)
         cn = cn.permute(1, 0, -1).reshape(1, -1, n * h)
         result = (torch.ones(size=(b, 1)) * sos_token_id).long()
+        result = result.to(self.device)
         (out, h, c) = self.decoder(result, hn, cn)
         predictions = out
         result = torch.argmax(out, dim=-1)
