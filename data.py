@@ -1,10 +1,10 @@
+import math
+import pandas as pd
 import torch
 from torch import Tensor
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Union
 from tokenizer import ITokenizer
-from torch.utils.data import Dataset
-from data_loaders import IDataLoader
 from hprams import hprams
 from torchaudio.transforms import (
     Resample,
@@ -59,61 +59,33 @@ class TextPipeline(IPipeline):
         return text
 
 
-class Data(Dataset):
+class BaseData:
     def __init__(
             self,
-            text_loader: IDataLoader,
             text_pipeline: IPipeline,
             audio_pipeline: IPipeline,
             tokenizer: ITokenizer,
-            batch_size: int,
-            max_len: int,
-            descending_order=False
+            max_len: int
             ) -> None:
-        super().__init__()
-        self.data = self.prepocess_lines(text_loader.load().split('\n'))
         self.text_pipeline = text_pipeline
         self.audio_pipeline = audio_pipeline
         self.tokenizer = tokenizer
-        self.batch_size = batch_size
         self.max_len = max_len
-        self.max_size = []
-        self.lengths = [
-            self.__get_aud(aud_path).shape[1]
-            for (aud_path, *_) in self.data
-        ]
-        self.data = sorted(
-            zip(self.data, self.lengths),
-            key=lambda x: x[-1],
-            reverse=descending_order
+
+    def _get_padded_aud(
+            self,
+            aud_path: Union[str, Path],
+            max_duration: int,
+            ) -> Tensor:
+        max_len = 1 + math.ceil(
+            max_duration * hprams.data.sampling_rate / hprams.data.hop_length
             )
-        self.lengths = sorted(self.lengths, reverse=descending_order)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, index) -> Tuple[Tensor, Tensor]:
-        (aud_path, text), *_ = self.data[index]
-        return (
-            self.__get_padded_aud(aud_path, index),
-            self.__get_padded_tokens(text)
-            )
-
-    def __get_aud(self, aud_path: Union[str, Path]) -> Tensor:
         aud = self.audio_pipeline.run(aud_path)
         assert aud.shape[0] == 1, f'expected audio of 1 channels got \
             {aud_path} with {aud.shape[0]} channels'
-        return aud
+        return self.pad_mels(aud, max_len)
 
-    def __get_padded_aud(
-            self,
-            aud_path: Union[str, Path],
-            aud_idx: int
-            ) -> Tensor:
-        aud = self.__get_aud(aud_path)
-        return self.pad_mels(aud, aud_idx)
-
-    def __get_padded_tokens(self, text: str) -> Tensor:
+    def _get_padded_tokens(self, text: str) -> Tensor:
         text = self.text_pipeline.run(text)
         tokens = self.tokenizer.tokens2ids(text)
         tokens.append(self.tokenizer.special_tokens.eos_id)
@@ -126,38 +98,68 @@ class Data(Dataset):
             for item in data
         ]
 
-    def _get_max_size(self, aud_idx: int) -> int:
-        """Returns the maximum length in the current batch of
-
-        Args:
-            aud_idx (int): the audio index - location in the sorted data
-
-        Returns:
-            int: the maximum size in the current batch
-        """
-        # if I'm at index 6 and the batch size is 8 then
-        # here we still working on the first batch
-        # while if I'm at index 10 and the batch size
-        # is 8 then we are working on the second batch
-        batch_idx = aud_idx // self.batch_size
-        # if already this batch checked and
-        # the max size added to max_size list
-        if len(self.max_size) > batch_idx:
-            return self.max_size[batch_idx]
-        end = (batch_idx + 1) * self.batch_size
-        start = batch_idx * self.batch_size
-        if end > len(self.lengths):
-            end = len(self.lengths)
-        max_size_val = max(self.lengths[start: end])
-        self.max_size.append(max_size_val)
-        return max_size_val
-
-    def pad_mels(self, mels: Tensor, aud_idx: int) -> Tensor:
-        max_size_val = self._get_max_size(aud_idx)
-        n = max_size_val - mels.shape[1] + 1
+    def pad_mels(self, mels: Tensor, max_len: int) -> Tensor:
+        n = max_len - mels.shape[1]
         zeros = torch.zeros(size=(1, n, mels.shape[-1]))
         return torch.cat([zeros, mels], dim=1)
 
     def pad_tokens(self, tokens: list) -> Tensor:
-        length = self.max_len - len(tokens) + 1
+        length = self.max_len - len(tokens)
         return tokens + [self.tokenizer.special_tokens.pad_id] * length
+
+
+class DataLoader(BaseData):
+    def __init__(
+            self,
+            file_path: Union[str, Path],
+            text_pipeline: IPipeline,
+            audio_pipeline: IPipeline,
+            tokenizer: ITokenizer,
+            batch_size: int,
+            max_len: int
+            ) -> None:
+        super().__init__(text_pipeline, audio_pipeline, tokenizer, max_len)
+        self.batch_size = batch_size
+        self.df = pd.read_csv(file_path)
+        self.num_examples = len(self.df)
+        self.idx = 0
+
+    def __len__(self):
+        length = self.num_examples // self.batch_size
+        mod = self.num_examples % self.batch_size
+        return length + 1 if mod > 0 else length
+
+    def get_max_duration(self, start_idx: int, end_idx: int) -> float:
+        return self.df[
+            hprams.data.csv_file_keys.duration
+            ].iloc[start_idx: end_idx].max()
+
+    def get_audios(self, start_idx: int, end_idx: int) -> Tensor:
+        max_duration = self.get_max_duration(start_idx, end_idx)
+        result = list(map(
+            self._get_padded_aud,
+            self.df[hprams.data.csv_file_keys.path].iloc[start_idx: end_idx],
+            [max_duration] * (end_idx - start_idx)
+            ))
+        result = torch.stack(result, dim=1)
+        return torch.squeeze(result)
+
+    def get_texts(self, start_idx: int, end_idx: int) -> Tensor:
+        args = self.df[hprams.data.csv_file_keys.text].iloc[start_idx: end_idx]
+        result = list(map(self._get_padded_tokens, args))
+        result = torch.stack(result, dim=0)
+        return result
+
+    def __iter__(self):
+        self.idx = 0
+        while True:
+            start = self.idx * self.batch_size
+            end = (self.idx + 1) * self.batch_size
+            end = min(end, self.num_examples)
+            if start > self.num_examples or start == end:
+                break
+            self.idx += 1
+            yield (
+                self.get_audios(start, end),
+                self.get_texts(start, end)
+                )
