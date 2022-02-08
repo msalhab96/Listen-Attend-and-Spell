@@ -1,6 +1,6 @@
 from utils import get_formated_date
-from torch.utils.data import DataLoader
 from torch.optim import Optimizer
+from data import DataLoader
 from typing import Callable
 from torch.nn import Module
 from functools import wraps
