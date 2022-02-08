@@ -2,14 +2,18 @@ checkpoint: null
 device: 'cuda'
 max_len: 200
 
+tokenizer:
+  tokenizer_file: null
+  vocab_path: 'files/vocab.txt'
+  
 data:
   sampling_rate: 16000
   n_mel_channels: 40
   hop_length: 200
   n_ftt: 400
-  training_file: 'files/train.txt'
-  testing_file: 'files/test.txt'
-  tokenizer_file: null
+  training_file: 'files/train.csv'
+  testing_file: 'files/test.csv'
+  max_str_len: 250
   descending_order: False
   sep: '|'
   csv_file_keys:
