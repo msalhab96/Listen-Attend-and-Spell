@@ -28,6 +28,7 @@ class Encoder(nn.Module):
             ) -> None:
         super().__init__()
         assert reduction_factor > 0, 'reduction_factor should be > 0'
+        self.hidden_size = hidden_size
         self.truncate = truncate
         self.device = device
         self.reduction_factor = reduction_factor
@@ -91,7 +92,7 @@ class Attention(nn.Module):
         e = torch.matmul(h_enc, h_dec.permute(1, 2, 0))
         a = torch.softmax(e, dim=1)
         c = torch.matmul(h_enc.permute(0, 2, 1), a)
-        return c.permute(2, 0, 1)
+        return c.permute(0, 2, 1)
 
 
 class Decoder(nn.Module):
@@ -99,15 +100,17 @@ class Decoder(nn.Module):
             self,
             vocab_size: int,
             embedding_dim: int,
-            hidden_size: int,
+            enc_hidden_size: int,
+            hidden_size: int
             ):
         super().__init__()
+        self.hidden_size = hidden_size
         self.embedding = nn.Embedding(
             num_embeddings=vocab_size,
             embedding_dim=embedding_dim
         )
         self.lstm = nn.LSTM(
-                input_size=embedding_dim,
+                input_size=embedding_dim + enc_hidden_size,
                 hidden_size=hidden_size,
                 batch_first=True
             )
@@ -119,10 +122,16 @@ class Decoder(nn.Module):
     def forward(
             self,
             x: Tensor,
+            context: Tensor,
             last_h: Tensor,
             last_c: Tensor
             ):
-        out = self.embedding(x)
+        # x -> (b, 1)
+        # context -> (b, 1, enc_h)
+        # last_h -> (1, b, dec_h)
+        # last_c -> (1, b, dec_h)
+        out = self.embedding(x)  # (b, 1, emb)
+        out = torch.cat([context, out], dim=-1)  # (b, 1, emb + enc_h)
         out, (h, c) = self.lstm(out, (last_h, last_c))
         out = self.fc(out)
         return out, h, c
@@ -139,7 +148,10 @@ class Model(nn.Module):
         self.device = device
         self.encoder = Encoder(**enc_params).to(device)
         self.attention = Attention()
-        self.decoder = Decoder(**dec_params).to(device)
+        self.decoder = Decoder(
+            **dec_params,
+            enc_hidden_size=enc_params['hidden_size'] * 2
+            ).to(device)
 
     def forward(
             self,
@@ -151,16 +163,17 @@ class Model(nn.Module):
             ):
         h_enc, hn, cn = self.encoder(x)
         (n, b, h) = hn.shape
-        hn = hn.permute(1, 0, -1).reshape(1, -1, n * h)
-        cn = cn.permute(1, 0, -1).reshape(1, -1, n * h)
+        hn = torch.zeros(1, b, self.decoder.hidden_size).to(self.device)
+        cn = torch.zeros(1, b, self.decoder.hidden_size).to(self.device)
+        context = torch.zeros(b, 1, self.encoder.hidden_size * 2).to(self.device)
         result = (torch.ones(size=(b, 1)) * sos_token_id).long()
         result = result.to(self.device)
-        (out, h, c) = self.decoder(result, hn, cn)
+        (out, h, c) = self.decoder(result, context, hn, cn)
         predictions = out
         result = torch.argmax(out, dim=-1)
         for t in range(max_len - 1):
             context = self.attention(h_enc, h)
-            (out, h, cn) = self.decoder(result, context, cn)
+            (out, h, cn) = self.decoder(result, context, h, cn)
             predictions = torch.cat((predictions, out), dim=1)
             if random.random() > teacher_forcing_prob:
                 result = target[:, t:t+1]
