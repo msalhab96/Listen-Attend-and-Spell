@@ -1,7 +1,7 @@
 from typing import Tuple
 import torch
 import torch.nn as nn
-from torch import Tensor
+from torch import Tensor, device
 import random
 
 
@@ -161,22 +161,45 @@ class Model(nn.Module):
             target: Tensor,
             teacher_forcing_prob: float
             ):
-        h_enc, hn, cn = self.encoder(x)
-        (n, b, h) = hn.shape
-        hn = torch.zeros(1, b, self.decoder.hidden_size).to(self.device)
-        cn = torch.zeros(1, b, self.decoder.hidden_size).to(self.device)
-        context = torch.zeros(b, 1, self.encoder.hidden_size * 2).to(self.device)
-        result = (torch.ones(size=(b, 1)) * sos_token_id).long()
-        result = result.to(self.device)
-        (out, h, c) = self.decoder(result, context, hn, cn)
+        h_enc, out, hn, cn = self.init_pred(x, sos_token_id)
         predictions = out
         result = torch.argmax(out, dim=-1)
         for t in range(max_len - 1):
-            context = self.attention(h_enc, h)
-            (out, h, cn) = self.decoder(result, context, h, cn)
+            out, hn, cn = self.predict_next(h_enc, hn, cn, result)
             predictions = torch.cat((predictions, out), dim=1)
             if random.random() > teacher_forcing_prob:
                 result = target[:, t:t+1]
             else:
                 result = torch.argmax(out, dim=-1)
         return torch.softmax(predictions, dim=2)
+
+    def init_pred(self, x: Tensor, sos_token_id: int):
+        h_enc, hn, cn = self.encoder(x)
+        b = hn.shape[1]
+        hn, cn = self.get_zeros_states(b)
+        context = self.get_zeros_context(b)
+        x0 = self.get_seed_tensor(sos_token_id, b)
+        (out, h, c) = self.decoder(x0, context, hn, cn)
+        return h_enc, out, h, c
+
+    def predict_next(self, h_enc: Tensor, hn: Tensor, cn: Tensor, xt: Tensor):
+        context = self.attention(h_enc, hn)
+        (out, hn, cn) = self.decoder(xt, context, hn, cn)
+        return out, hn, cn
+
+    def get_zeros_states(self, batch_size: int) -> Tuple[Tensor, Tensor]:
+        return (
+            torch.zeros(1, batch_size, self.decoder.hidden_size).to(self.device),
+            torch.zeros(1, batch_size, self.decoder.hidden_size).to(self.device)
+        )
+
+    def get_zeros_context(self, batch_size: int) -> Tensor:
+        return torch.zeros(batch_size, 1, self.encoder.hidden_size * 2).to(self.device)
+
+    def get_seed_tensor(self, sos_token_id: int, batch_size: int):
+        result = (torch.ones(size=(batch_size, 1)) * sos_token_id).long()
+        return result.to(self.device)
+
+
+    def enc_predict(self, x: Tensor):
+        return self.encoder(x)
