@@ -53,5 +53,5 @@ pip install -r requirements.txt
   ```
   * from checkpoint 
   ```
-  python train.py checkpoint=path/to/checkpoint
+  python train.py checkpoint=path/to/checkpoint tokenizer.tokenizer_file=path/to/tokenizer.json
   ```
