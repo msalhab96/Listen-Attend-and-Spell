@@ -87,7 +87,7 @@ class Encoder(nn.Module):
 class Attention(nn.Module):
     def __init__(self):
         super().__init__()
-
+    # TODO: Add MLP Network φ and ψ blenders
     def forward(self, h_enc: Tensor, h_dec: Tensor) -> Tensor:
         e = torch.matmul(h_enc, h_dec.permute(1, 2, 0))
         a = torch.softmax(e, dim=1)
@@ -104,6 +104,7 @@ class Decoder(nn.Module):
             hidden_size: int
             ):
         super().__init__()
+        # TODO: Add LSTM Layers 
         self.hidden_size = hidden_size
         self.embedding = nn.Embedding(
             num_embeddings=vocab_size,
