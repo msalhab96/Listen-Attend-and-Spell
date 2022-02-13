@@ -112,27 +112,28 @@ class Decoder(nn.Module):
             enc_hidden_size: int,
             hidden_size: int,
             n_layers: int,
+            device='cuda'
             ):
         super().__init__()
         self.hidden_size = hidden_size
         self.embedding = nn.Embedding(
             num_embeddings=vocab_size,
             embedding_dim=embedding_dim
-        )
+        ).to(device)
         self.layers = nn.ModuleList([
             nn.LSTM(
                 input_size=embedding_dim + enc_hidden_size \
                      if i == 0 else hidden_size,
                 hidden_size=hidden_size,
                 batch_first=True
-            )
+            ).to(device)
             for i in range(n_layers)
         ])
 
         self.fc = nn.Linear(
             in_features=hidden_size,
             out_features=vocab_size
-            )
+            ).to(device)
 
     def forward(
             self,

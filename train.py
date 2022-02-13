@@ -109,8 +109,6 @@ class Trainer:
             result = result.reshape(-1, result.shape[-1])
             y = y.reshape(-1)
             y = torch.squeeze(y)
-            print(y)
-            print(torch.argmax(result, dim=-1))
             loss = self.criterion(torch.squeeze(result), y)
             total_loss += loss.item()
         total_loss /= len(self.test_loader)
@@ -153,14 +151,16 @@ class Trainer:
 
 def get_model_args(vocab_size: int) -> dict:
     device = hprams.device
-    enc_params = dict(**hprams.model.encoder, device=device)
+    enc_params = dict(**hprams.model.encoder)
     dec_params = dict(
         **hprams.model.decoder,
         vocab_size=vocab_size
         )
+    att_params = hprams.model.attention
     return {
         'enc_params': enc_params,
         'dec_params': dec_params,
+        'att_params': att_params,
         'device': device
     }
 
