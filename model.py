@@ -101,20 +101,25 @@ class Decoder(nn.Module):
             vocab_size: int,
             embedding_dim: int,
             enc_hidden_size: int,
-            hidden_size: int
+            hidden_size: int,
+            n_layers: int,
             ):
         super().__init__()
-        # TODO: Add LSTM Layers 
         self.hidden_size = hidden_size
         self.embedding = nn.Embedding(
             num_embeddings=vocab_size,
             embedding_dim=embedding_dim
         )
-        self.lstm = nn.LSTM(
-                input_size=embedding_dim + enc_hidden_size,
+        self.layers = nn.ModuleList([
+            nn.LSTM(
+                input_size=embedding_dim + enc_hidden_size\
+                     if i == 0 else hidden_size,
                 hidden_size=hidden_size,
                 batch_first=True
             )
+            for i in range(n_layers)
+        ])
+
         self.fc = nn.Linear(
             in_features=hidden_size,
             out_features=vocab_size
@@ -133,7 +138,11 @@ class Decoder(nn.Module):
         # last_c -> (1, b, dec_h)
         out = self.embedding(x)  # (b, 1, emb)
         out = torch.cat([context, out], dim=-1)  # (b, 1, emb + enc_h)
-        out, (h, c) = self.lstm(out, (last_h, last_c))
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                out, (h, c) = layer(out, (last_h, last_c))
+            else:
+                out, (h, c) = layer(out)
         out = self.fc(out)
         return out, h, c
 
@@ -152,7 +161,7 @@ class Model(nn.Module):
         self.decoder = Decoder(
             **dec_params,
             enc_hidden_size=enc_params['hidden_size'] * 2
-            ).to(device)
+            )
 
     def forward(
             self,

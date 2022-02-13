@@ -40,3 +40,4 @@ model:
   decoder:
     embedding_dim: 512
     hidden_size: 256
+    n_layers: 2
