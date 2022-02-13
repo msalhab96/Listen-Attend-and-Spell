@@ -23,8 +23,7 @@ class Encoder(nn.Module):
             num_layers: int,
             hidden_size: int,
             truncate: bool,
-            reduction_factor=2,
-            device='cuda'
+            reduction_factor=2
             ) -> None:
         super().__init__()
         assert reduction_factor > 0, 'reduction_factor should be > 0'
@@ -84,15 +83,25 @@ class Encoder(nn.Module):
             )
 
 
+
 class Attention(nn.Module):
-    def __init__(self):
+    def __init__(
+            self,
+            hidden_size: int,
+            attention_size: int
+            ):
         super().__init__()
-    # TODO: Add MLP Network φ and ψ blenders
+        self.psi_fc = nn.Linear(hidden_size, attention_size)
+        self.phi_fc = nn.Linear(hidden_size, attention_size)
+
     def forward(self, h_enc: Tensor, h_dec: Tensor) -> Tensor:
-        e = torch.matmul(h_enc, h_dec.permute(1, 2, 0))
+        psi_out = self.psi_fc(h_enc)
+        phi_out = self.phi_fc(h_dec)
+        e = torch.matmul(psi_out, phi_out.permute(1, 2, 0))
         a = torch.softmax(e, dim=1)
         c = torch.matmul(h_enc.permute(0, 2, 1), a)
         return c.permute(0, 2, 1)
+
 
 
 class Decoder(nn.Module):
@@ -112,7 +121,7 @@ class Decoder(nn.Module):
         )
         self.layers = nn.ModuleList([
             nn.LSTM(
-                input_size=embedding_dim + enc_hidden_size\
+                input_size=embedding_dim + enc_hidden_size \
                      if i == 0 else hidden_size,
                 hidden_size=hidden_size,
                 batch_first=True
@@ -152,12 +161,13 @@ class Model(nn.Module):
             self,
             enc_params: dict,
             dec_params: dict,
+            att_params: dict,
             device='cuda'
             ):
         super().__init__()
         self.device = device
         self.encoder = Encoder(**enc_params).to(device)
-        self.attention = Attention()
+        self.attention = Attention(**att_params).to(device)
         self.decoder = Decoder(
             **dec_params,
             enc_hidden_size=enc_params['hidden_size'] * 2
@@ -209,7 +219,6 @@ class Model(nn.Module):
     def get_seed_tensor(self, sos_token_id: int, batch_size: int):
         result = (torch.ones(size=(batch_size, 1)) * sos_token_id).long()
         return result.to(self.device)
-
 
     def enc_predict(self, x: Tensor):
         return self.encoder(x)
