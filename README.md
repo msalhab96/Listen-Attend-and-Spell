@@ -55,3 +55,7 @@ pip install -r requirements.txt
   ```
   python train.py checkpoint=path/to/checkpoint tokenizer.tokenizer_file=path/to/tokenizer.json
   ```
+
+# TODO
+- [ ] Compeleting the inference module 
+- [ ] Adding Demo
