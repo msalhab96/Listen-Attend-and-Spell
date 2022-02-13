@@ -45,6 +45,7 @@ class BeamSearch:
         self.eos_token = eos_token_id
 
     def decode(self):
+        raise NotImplementedError
         # TODO: Add length normalizer
         # TODO: Update The model inested of the fake model
         # TODO: use torch.log on the values
