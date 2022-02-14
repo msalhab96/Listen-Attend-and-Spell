@@ -38,22 +38,31 @@ def get_result(result: Tensor, prob: Tensor, n: int):
 
 
 class BeamSearch:
-    def __init__(self, beta: int, model, max_len: int, eos_token_id: int):
+    def __init__(
+            self, 
+            beta: int, 
+            model, 
+            max_len: int, 
+            eos_token_id: int,
+            sos_token_id: int
+            ):
         self.beta = beta
         self.max_len = max_len
         self.model = model
         self.eos_token = eos_token_id
+        self.sos_token = sos_token_id
 
-    def decode(self):
+    def decode(self, x: Tensor):
         raise NotImplementedError
         # TODO: Add length normalizer
-        # TODO: Update The model inested of the fake model
         # TODO: use torch.log on the values
-        temp_result = self.model()  # (B, 1, V)
+        h_enc, temp_result, hn, cn = self.model.init_pred(x, self.sos_token)
+        # temp_result -> (B, 1, V)
         result, tot_prob = get_top_candidates(temp_result, self.beta)
         mask = torch.ones(result.shape[0] * self.beta, dtype=torch.bool)
         for i in range(self.max_len):
-            temp_result = self.model()
+            last_pred = self.get_last_pred(result)
+            temp_result, hn, cn = self.model.predict_next(h_enc, hn, cn, last_pred)
             ind, vals = get_top_candidates(temp_result, self.beta)
             result = result.view(-1, i+1).repeat((1, self.beta)).view(-1, i+1)
             result = torch.cat([result, torch.unsqueeze(ind, 1)], dim=1)
@@ -67,5 +76,8 @@ class BeamSearch:
         return get_result(result, tot_prob, self.beta)
 
     def update_mask(self, mask: Tensor, ind: Tensor):
-        last_pred = ind[..., -1]
+        last_pred = self.get_last_pred(ind)
         return mask & (last_pred != self.eos_token)
+
+    def get_last_pred(self, ind: Tensor):
+        return ind[..., -1]
