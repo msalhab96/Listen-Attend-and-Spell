@@ -1,6 +1,11 @@
 from torch import Tensor
 import torch
-
+from data import AudioPipeline
+from train import (
+    get_tokenizer,
+    load_model
+)
+from hprams import hprams
 
 def get_top_candidates(x: Tensor, n: int):
     # x -> (B, 1, V)
@@ -53,7 +58,6 @@ class BeamSearch:
         self.sos_token = sos_token_id
 
     def decode(self, x: Tensor):
-        raise NotImplementedError
         # TODO: Add length normalizer
         # TODO: use torch.log on the values
         h_enc, temp_result, hn, cn = self.model.init_pred(x, self.sos_token)
@@ -81,3 +85,20 @@ class BeamSearch:
 
     def get_last_pred(self, ind: Tensor):
         return ind[..., -1]
+
+
+class Predictor(BeamSearch):
+    def __init__(self) -> None:
+        self.tokenizer = get_tokenizer()
+        self.model = load_model()
+        self.audio_pipeline = AudioPipeline()
+        super().__init__(
+            **hprams.beam_search,
+            model=load_model(),
+            sos_token_id=self.tokenizer.special_tokens.sos_token,
+            eos_token_id=self.tokenizer.special_tokens.eos_token
+        )
+
+    def predict(self, file_path):
+        x = self.audio_pipeline(file_path)
+        return self.decode(x)
