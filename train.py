@@ -14,7 +14,7 @@ import os
 
 OPT = {
     'adam': torch.optim.Adam,
-    'sgd': torch.optim.Adam
+    'sgd': torch.optim.SGD
 }
 
 
